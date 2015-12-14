@@ -1,22 +1,16 @@
-from marketrequest import Request
+from marketrequest import Request, average
 import random
-
+from decimal import Decimal
+import decimal
 # initial prices for each good
 # basic goods cost the least,
 # and derived goods cost more
 def initbaseprices(base):
-    base['wood'] = [10]
-    base['food'] = [10]
-    base['ore']  = [10]
-    base['fuel'] = [10] # because 1 wood produces 2
-    base['tools']= [40] # because needs 3 ingredients plus labor
-
-def average(L):
-    if len(L) == 0:
-        raise ValueError('Cannot compute average on empty list')
-    l = len(L)
-    s = sum(L)
-    return s/l
+    base['wood'] = 10
+    base['food'] = 10
+    base['ore']  = 10
+    base['fuel'] = 10 # because 1 wood produces 2
+    base['tools']= 40 # because needs 3 ingredients plus labor
 
 class PriceBelief:
     def __init__(self, name, price):
@@ -29,34 +23,43 @@ class PriceBelief:
         m = self.mean - self.range
         m = 0 if m < 0 else m
         M = self.mean + self.range
+        m, M = int(m), int(M)
         return random.randint(m, M)
 
-    def adjust(self, success, average):
+    # if success, price==successprice.
+    # if fail, price==marketprice
+    def adjust(self, success, price):
         if success:
             self.range *= 1.0 - self.k
             self.range -= 1
-            if self.range < 0:
+            if self.range < 1:
                 self.range = 1
         else:
             self.range *= 1.0 + self.k
             self.range += 1
-            self.mean += (average - self.mean) * self.k
-        self.range = int(self.range)
-        self.mean  = int(self.mean)
+        self.mean += (price - self.mean) * self.k
 
     def __str__(self):
-        return "<Belief: %d <= %d <= %d>" % (self.mean-self.range,
+        return "<%s Belief: %d <= %d <= %d>" % (
+            repr(self.name),
+            self.mean-self.range,
             self.mean,
             self.mean+self.range)
 
 class Agent:
     def __init__(self):
         self.name = None
+        self.job = None
         self.needs = {}
         self.produces = []
         self.inventory = {}
-        self.money = 0
+        self.money = 100
         self.pricebeliefs = {}
+        self.margin = 2 # eg, if "needs" 10 will aim to buy 20 for safety.
+        self.receipts = []
+
+    def __repr__(self):
+        return "<Agent: %s, %s>" % (repr(self.name), repr(self.job))
 
     def additem(self, item, number):
         if number <= 0:
@@ -73,7 +76,8 @@ class Agent:
             raise ValueError("%d is not a valid number of items" % number)
         if item not in self.inventory:
             if not ignoreLack:
-                raise ValueError("Agent does not have any %s" % repr(item))
+                raise ValueError("%s does not have any %s but tried to remove %d"
+                 % (repr(self), repr(item), number))
             return
         if self.inventory[item] < number:
             if not ignoreLack:
@@ -87,7 +91,11 @@ class Agent:
     def getitem(self, item):
         if item in self.inventory:
             return self.inventory[item]
-        return 0
+        return Decimal(0)
+
+    # select a random price in a range
+    def makeoffer(self, item):
+        return self.pricebeliefs[item].getPrice()
 
     def initialproduce(self):
         for thing in self.produces:
@@ -95,7 +103,7 @@ class Agent:
                 self.additem(product, number)
 
     def produce(self):
-        self.removeitem('food', 10, ignoreLack=True)
+        self.removeitem('food', 1, ignoreLack=True)
         # attempt to do job.
         # can only do 1 reaction per turn
         for reaction in self.produces:
@@ -110,16 +118,69 @@ class Agent:
                 for result in reaction['produces']:
                     self.additem(result[0], result[1])
 
-    def setbeliefs(self, market):
-        for thing in market.pricehistories:
-            price = market.pricehistories[thing]
-            price = int(average(price))
+    def setbeliefs(self, marketprices):
+        for thing in marketprices:
+            price = marketprices[thing]
             self.pricebeliefs[thing] = PriceBelief(thing,price) 
+
+    def shiftbelief(self, item, success, price):
+        if item in self.pricebeliefs: # if it exists!
+            self.pricebeliefs[item].adjust(success, price)
+        else:
+            self.pricebeliefs[item] = PriceBelief(item, price)
                 
-
     def makerequests(self, market):
-        pass
+        # buys
+        for item in self.needs:
+            # compare market price with own belief of price
+            belief = self.makeoffer(item)
+            favor =  belief / market.getmarketprice(item)
+            # if favor is over  1, buy more
+            # if favor is under 1, buy less
+            # also needs to cast from Decimal to float
+            ordersize = round(favor * float(self.needs[item] - self.getitem(item)))
+            ordersize = int(ordersize)
+            ordersize = min(ordersize, round(self.money / belief))
+            if ordersize > 0:
+                # can only place orders in multiples of 10
+                req = Request(kind="buy", who=self.name,
+                 item=item, num=ordersize, price=belief)
+                market.addbuy(req)
+                self.money -= ordersize * belief
+        # sells
+        for item in self.inventory:
+            amount = self.getitem(item)
+            if item in self.needs:
+                amount -= self.needs[item]
+            if amount > 0: # have more than amount of unneeded items
+                belief = self.makeoffer(item)
+                favor = belief/market.getmarketprice(item)
+                ordersize = int(round(favor * float(amount))) # cast decimal to float
+                if ordersize > amount:
+                    ordersize = amount
+                if ordersize > 0:
+                    req = Request(kind="sell", who=self.name,
+                        item=item, num=ordersize, price=belief)
+                    market.addsell(req)
 
+    def applyreceipt(self, receipt, marketprice):
+        if receipt.buyer == self.name:                
+            # refund extra money
+            self.money += receipt.num * (receipt.offer - receipt.price)
+            self.additem(receipt.item, receipt.num)
+            # shift price beliefs
+            if not receipt.seller: # failed to buy
+                self.shiftbelief(receipt.item, False, marketprice)
+            else:
+                self.shiftbelief(receipt.item, True, receipt.price)
+        elif receipt.seller == self.name:
+            if not receipt.buyer:
+                self.shiftbelief(receipt.item, False, marketprice)
+            else:
+                # give returns from sale
+                self.money += receipt.num * receipt.price
+                self.removeitem(receipt.item, receipt.num)
+                self.shiftbelief(receipt.item, True, receipt.price)
 
 agentcounter = 0
 def makeagent(kind, market):
@@ -127,76 +188,90 @@ def makeagent(kind, market):
     newagent = Agent()
     if kind == 'wood burner':
         newagent.needs = {
-            'wood': 10,
-            'food': 10
+            'wood': Decimal(1),
+            'food': Decimal(1)
         }
         newagent.produces = [
             {
-                'needs': [('wood', 10)], # 1 wood to 2 fuel
-                'produces': [('fuel', 20)]
+                'needs': [('wood', Decimal(1))], # 1 wood to 2 fuel
+                'produces': [('fuel', Decimal(2))]
             }
         ]
-    elif kind == 'lumberjack':
+    elif kind == 'wood cutter':
         newagent.needs = {
-            'food': 10,
-            'tools': 1
+            'food': Decimal(1),
+            'tools': Decimal(1)
         }
         newagent.produces = [
             {
-                'needs': [('tools', 1)],
-                'produces': [('wood', 20)]
+                'needs': [('tools', Decimal('0.1'))],
+                'produces': [('wood', Decimal(2))]
             }
         ]
     elif kind == 'miner':
         newagent.needs = {
-            'food': 10,
-            'tools': 1
+            'food': Decimal(1),
+            'tools': Decimal(1)
         }
         newagent.produces = [
             {
-                'needs': [('tools', 1)],
-                'produces': [('ore', 20)]
+                'needs': [('tools', Decimal('0.1'))],
+                'produces': [('ore', Decimal(2))]
             }
         ]
     elif kind == 'blacksmith':
         newagent.needs = {
-            'food': 10,
-            'fuel': 10,
-            'ore' : 10
+            'food': Decimal(1),
+            'fuel': Decimal(1),
+            'ore' : Decimal(1)
         }
         newagent.produces = [
             {
-                'needs': [('fuel', 10), ('ore', 10)],
-                'produces': [('tools', 10)]
+                'needs': [('fuel', Decimal(1)), ('ore', Decimal(1))],
+                'produces': [('tools', Decimal(1))]
             }
         ]
     elif kind == 'farmer':
         newagent.needs = {
-            'food': 10,
-            'tools': 1
+            'food': Decimal(1),
+            'tools': Decimal(1)
         }
         newagent.produces = [
             {
-                'needs': [('tools', 1)],
-                'produces': [('food', 30)]
+                'needs': [('tools', Decimal('0.1'))],
+                'produces': [('food', Decimal(3))]
             }
         ]
     else:
         raise KeyError("No such agent type named %s" % repr(kind))
     newagent.initialproduce()
     newagent.name = 'Agent ' + str(agentcounter)
-    newagent.setbeliefs(market)
+    newagent.job = kind
+    newagent.additem('tools', Decimal('0.2'))
+    newagent.setbeliefs(market.marketprices)
     agentcounter += 1
     return newagent
 
+
+agenttypes = ["farmer", "wood burner", "wood cutter", "miner", "blacksmith"]
+def makerandomagent(market):
+    kind = random.choice(agenttypes)
+    return makeagent(kind, market)
+
 if __name__=='__main__':
+    Verbose = True
     import unittest
+    from pprint import pprint
+    from marketrequest import Receipt
     class DummyMarket:
         def __init__(self):
             self.buys = []
             self.sells = []
-            self.pricehistories = {}
-            initbaseprices(self.pricehistories)
+            self.marketprices = {}
+            initbaseprices(self.marketprices)
+
+        def getmarketprice(self, item):
+            return self.marketprices[item]
 
         def addbuy(self, request):
             self.buys.append(request)
@@ -210,55 +285,93 @@ if __name__=='__main__':
             for x in range(100):
                 self.assertTrue(5 <= belief.getPrice() <= 15)
             # test adjusting beliefs
-            tests = [(True, 10), (True, 20), (True, 100)]
+            tests = [(True, 10, 10), (True, 20, 12), (True, 100, 29.6)]
             for x in range(len(tests)):
                 with self.subTest(i=x):
                     belief.adjust(tests[x][0], tests[x][1])
-                    self.assertEqual(belief.mean, 10)
-            tests = [(False, 10), (False, 20), (False, 100), (False, 5)]
-            results = [10, 12, 20, 25]
+                    self.assertEqual(belief.mean, tests[x][2])
+            belief = PriceBelief('banana', 10)
+            tests = [(False, 10), (False, 20), (False, 100)]
+            prevM = belief.mean
+            prevRange = belief.range
             for x in range(len(tests)):
                 with self.subTest(i=x):
                     belief.adjust(tests[x][0], tests[x][1])
-                    self.assertTrue(belief.range >= 2)
-                    if x==3:
-                        self.assertTrue(belief.mean <= results[x])    
-                    else:
-                        self.assertTrue(belief.mean >= results[x])
+                    self.assertTrue(prevM <= belief.mean)
+                    self.assertTrue(prevRange < belief.range)
+                    prevM, prevRange = belief.mean, belief.range
 
     class AgentTest(unittest.TestCase):
         def test_initialization(self):
             agent = makeagent('miner', DummyMarket())
-            self.assertEqual(agent.inventory["ore"], 20)
+            self.assertEqual(agent.inventory["ore"], 2)
             # also test averages
             test = [0, 1, 2, 3]
             self.assertEqual(average(test), 1.5)
             test = [-1, 0, 2, -1]
             self.assertEqual(average(test), 0)
-        
+            test = []
+            with self.assertRaises(ValueError) as cm:
+                average(test)
+
         def test_reaction(self):
             agent = makeagent('blacksmith', DummyMarket())
-            self.assertEqual(agent.getitem('tools'), 10)
+            self.assertEqual(agent.getitem('tools'), Decimal('1.2'))
             agent.produce() # doesn't have the ingredients
             # so should have the same amount afterwards
-            self.assertEqual(agent.getitem('tools'), 10)
-            agent.additem('ore', 5)
-            agent.additem('fuel', 10)
+            self.assertEqual(agent.getitem('tools'), Decimal('1.2'))
+            agent.additem('ore', Decimal('0.5'))
+            agent.additem('fuel', 1)
             agent.produce() # still not enough ore
-            self.assertEqual(agent.getitem('tools'), 10)
-            agent.additem('ore', 5)
+            self.assertEqual(agent.getitem('tools'), Decimal('1.2'))
+            agent.additem('ore', Decimal('0.5'))
             agent.produce()
-            self.assertEqual(agent.getitem('tools'), 20)
+            self.assertEqual(agent.getitem('tools'), Decimal('2.2'))
             # check for foodness
             for item in agent.inventory:
                 self.assertTrue(agent.inventory[item] > 0)
 
         def test_placeorder(self):
             market = DummyMarket()
-            miner= makeagent('miner', market)
-            blacksmith = makeagent('blacksmith', market)
-            farmer = makeagent('farmer', market)
-            miner.makerequests(market)
-            blacksmith.makerequests(market)
-            farmer.makerequests(market)
+            agents = []
+            agents.append(makeagent('miner', market))
+            agents.append(makeagent('blacksmith', market))
+            agents.append(makeagent('farmer', market))
+            agents.append(makeagent('wood cutter', market))
+            agents.append(makeagent('wood burner', market))
+            for agent in agents:
+                agent.makerequests(market)
+            self.assertTrue(len(market.buys) != 0)
+            if Verbose:
+                pprint(market.buys)
+            self.assertTrue(len(market.sells) != 0)
+            if Verbose:
+                pprint(market.sells)
+                for req in market.buys:
+                    self.assertTrue(req.num >= 1)
+                    self.assertIsInstance(req.num, int)
+                print("Monies: "+str([x for x in map(lambda x: x.money, agents)]))
+            for agent in agents:
+                self.assertTrue(0 <= agent.money <= 100)
+
+        def test_processreceipt(self):
+            d = {}
+            initbaseprices(d)
+            agent = Agent()
+            agent.setbeliefs(d)
+            agent.name = "Wang Peng"
+            agent.applyreceipt(Receipt("Wang Peng", "Li You", "tools", 2, 40, 60)
+                , 45)
+            self.assertEqual(agent.money, Decimal('140'))
+            self.assertEqual(agent.getitem('tools'), 2)
+
+        def test_processnewitemtype(self):
+            d = {}
+            initbaseprices(d)
+            agent = Agent()
+            agent.setbeliefs(d)
+            agent.name = "Wang Peng"
+            agent.applyreceipt(Receipt("Wang Peng", "Li You", "apples", 1, 10, 15)
+                , 45)
+
     unittest.main()
