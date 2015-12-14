@@ -74,6 +74,9 @@ class Market:
                 for sell in sells:
                     receipt = Receipt(None, sell.who, item, sell.num, sell.price, None)
                     receipts[item].append(receipt)
+        # clear old requests
+        self.buys  = {}
+        self.sells = {}
         return receipts
 
     def processreceipts(self, receiptsdict):
