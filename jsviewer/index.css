@@ -1,0 +1,36 @@
+body {
+  font: 16px sans-serif;
+  background-color: #EEE;
+}
+
+td {
+	border: 1px solid black;
+	text-align: center;
+}
+
+.axis path,
+.axis line {
+  fill: none;
+  stroke: #000;
+  shape-rendering: crispEdges;
+}
+
+.x.axis path {
+  display: none;
+}
+
+.line {
+  fill: none;
+  stroke-width: 2px;
+}
+
+.legend {
+	padding: 0px 5px;
+	color: #f9f9f9;
+	font-weight:bold;
+}
+
+.verticalline {
+	stroke: #000;
+	stroke-width: 1px;
+}

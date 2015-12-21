@@ -9,6 +9,9 @@ class Market:
         self.agents = {}
         self.transactions = [] # list of dictionaries of arrays
         self.marketprices = {} # dict of 'market price' for previous round
+        # for logging purposes
+        self.buyorderfreq  = {}
+        self.sellorderfreq = {}
 
     def recordtransaction(self, item, price):
         thing = self.transactions[-1].setdefault(item, [])
@@ -27,9 +30,29 @@ class Market:
             history = self.transactions[-1][item]
             self.marketprices[item] = average(history)
 
+    def countorders(self):
+        self.buyorderfreq = {}
+        self.sellorderfreq = {}
+        for thing in self.marketprices:
+            self.buyorderfreq[thing] = 0
+            self.sellorderfreq[thing] = 0
+        for item in self.buys:
+            for order in self.buys[item]:
+                try:
+                    self.buyorderfreq[item] += order.num
+                except:
+                    self.buyorderfreq[item] = order.num
+        for item in self.sells:
+            for order in self.sells[item]:
+                try:
+                    self.sellorderfreq[item] += order.num
+                except:
+                    self.sellorderfreq[item] = order.num
+
     def cleartrades(self):
         receipts = {}
         self.updateprices()
+        self.countorders()
         self.transactions.append({})
         for item in self.buys:
             receipts[item] = []

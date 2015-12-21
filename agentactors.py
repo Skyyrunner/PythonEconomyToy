@@ -140,6 +140,8 @@ class Agent:
             # also needs to cast from Decimal to float
             ordersize = round(favor * float(self.needs[item] - self.getitem(item)))
             ordersize = int(ordersize)
+            if belief == 0: # not willing to buy
+                continue 
             ordersize = min(ordersize, round(self.money / belief))
             if ordersize > 0:
                 # can only place orders in multiples of 10
@@ -154,7 +156,7 @@ class Agent:
                 amount -= self.needs[item]
             if amount > 0: # have more than amount of unneeded items
                 belief = self.makeoffer(item)
-                favor = belief/market.getmarketprice(item)
+                favor = belief / market.getmarketprice(item)
                 ordersize = int(round(favor * float(amount))) # cast decimal to float
                 if ordersize > amount:
                     ordersize = amount
@@ -350,6 +352,7 @@ if __name__=='__main__':
                 for req in market.buys:
                     self.assertTrue(req.num >= 1)
                     self.assertIsInstance(req.num, int)
+                    self.assertEqual((req.num * 10) % 10, 0)
                 print("Monies: "+str([x for x in map(lambda x: x.money, agents)]))
             for agent in agents:
                 self.assertTrue(0 <= agent.money <= 100)
