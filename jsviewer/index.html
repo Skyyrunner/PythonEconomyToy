@@ -1,12 +1,23 @@
 <head>
-	<title>Econ simulator viewer</title>
+	<title>GraphViewer 3000</title>
 	<script src="d3.js" charset="utf-8"></script>
 	<script src="underscore.js"></script>
 	<script src="graphs.js"></script>
 	<link rel="stylesheet" type="text/css" href="index.css"/>
 </head>
 <body>
-	<svg id="prices" width='780' height='300'></svg>
-	<table id="pricelegends"></table>
-	<svg id="demand" width='780' height='300'></svg>
+	<div id="graphs">
+		<h3>Prices</h3>
+		<svg id="prices" width='740' height='300'></svg>
+		<h3>Demand</h3>
+		<svg id="demand" width='740' height='300'></svg>
+		<h3>Supply</h3>
+		<svg id="supply" width='740' height='300'></svg>
+		<h3>Jobs</h3>
+		<svg id="jobs" width='740' height='300'></svg>
+	</div>
+	<div id="legenddiv">
+		Round: <span id="roundcounter"></span> 
+		<table id="legends"></table>
+	</div>
 </body>

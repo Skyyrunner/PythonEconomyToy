@@ -185,6 +185,7 @@ class Agent:
                 self.shiftbelief(receipt.item, True, receipt.price)
 
 agentcounter = 0
+resourcetypes = ["food", "fuel", "wood", "ore", "tools"]
 def makeagent(kind, market):
     global agentcounter
     newagent = Agent()
