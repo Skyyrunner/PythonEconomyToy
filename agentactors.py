@@ -196,8 +196,8 @@ def makeagent(kind, market):
         }
         newagent.produces = [
             {
-                'needs': [('wood', Decimal(1))], # 1 wood to 2 fuel
-                'produces': [('fuel', Decimal(2))]
+                'needs': [('wood', Decimal(2))],
+                'produces': [('fuel', Decimal(1))]
             }
         ]
     elif kind == 'wood cutter':
@@ -208,7 +208,7 @@ def makeagent(kind, market):
         newagent.produces = [
             {
                 'needs': [('tools', Decimal('0.1'))],
-                'produces': [('wood', Decimal(2))]
+                'produces': [('wood', Decimal(1))]
             }
         ]
     elif kind == 'miner':
@@ -219,7 +219,7 @@ def makeagent(kind, market):
         newagent.produces = [
             {
                 'needs': [('tools', Decimal('0.1'))],
-                'produces': [('ore', Decimal(2))]
+                'produces': [('ore', Decimal(1))]
             }
         ]
     elif kind == 'blacksmith':
@@ -230,7 +230,7 @@ def makeagent(kind, market):
         }
         newagent.produces = [
             {
-                'needs': [('fuel', Decimal(1)), ('ore', Decimal(1))],
+                'needs': [('fuel', Decimal(1)), ('ore', Decimal(2))],
                 'produces': [('tools', Decimal(1))]
             }
         ]
@@ -242,7 +242,7 @@ def makeagent(kind, market):
         newagent.produces = [
             {
                 'needs': [('tools', Decimal('0.1'))],
-                'produces': [('food', Decimal(3))]
+                'produces': [('food', Decimal(2))]
             }
         ]
     else:
